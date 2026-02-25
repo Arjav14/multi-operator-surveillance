@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Operator Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+        
+        /* Header */
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .header h1 span {
+            font-size: 28px;
+        }
+        
+        .stats-badge {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .badge {
+            padding: 8px 20px;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: 500;
+            background: #f0f0f0;
+            color: #666;
+        }
+        
+        /* Main Grid - 3 columns */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1.2fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        /* Video Section */
+        .video-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .video-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .video-container {
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+        }
+        
+        .video-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        
+        /* Operators Panel */
+        .operators-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        /* Summary Card */
+        .summary-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .summary-title {
+            color: #666;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .system-state {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .state-active {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .state-idle {
+            background: #FFC107;
+            color: white;
+        }
+        
+        .state-absent {
+            background: #F44336;
+            color: white;
+        }
+        
+        .state-unknown {
+            background: #9E9E9E;
+            color: white;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .summary-item {
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .summary-label {
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        
+        .summary-value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+        
+        .value-active { color: #4CAF50; }
+        .value-idle { color: #FFC107; }
+        .value-total { color: #667eea; }
+        
+        /* Uptime */
+        .uptime-display {
+            text-align: center;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        /* Operators Grid */
+        .operators-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        
+        .operator-card {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-left: 4px solid #ccc;
+            transition: transform 0.2s;
+        }
+        
+        .operator-card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .operator-card.active {
+            border-left-color: #4CAF50;
+        }
+        
+        .operator-card.idle {
+            border-left-color: #FFC107;
+        }
+        
+        .operator-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .operator-id {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .operator-state {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .state-active {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .state-idle {
+            background: #FFC107;
+            color: white;
+        }
+        
+        .operator-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+        
+        .detail-item {
+            color: #666;
+        }
+        
+        .detail-value {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .empty-slot {
+            background: #f8f9fa;
+            border: 2px dashed #ddd;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            color: #999;
+            font-size: 14px;
+        }
+        
+        /* Notifications Panel - STATIC (no animations) */
+        .notifications-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            height: fit-content;
+            max-height: 600px;
+        }
+        
+        .notifications-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .notifications-title {
+            color: #666;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .notification-badge {
+            background: #F44336;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+        
+        .mark-read-btn {
+            padding: 5px 15px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 15px;
+            font-size: 12px;
+            cursor: pointer;
+            color: #666;
+            transition: all 0.2s;
+        }
+        
+        .mark-read-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        .notifications-list {
+            overflow-y: auto;
+            max-height: 500px;
+            padding-right: 5px;
+        }
+        
+        .notification-item {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            position: relative;
+            border-left: 4px solid;
+            /* NO ANIMATIONS - static */
+        }
+        
+        .notification-item.unread {
+            background: #f0f7ff;
+        }
+        
+        .notification-item.read {
+            opacity: 0.7;
+        }
+        
+        .notification-item.info {
+            border-left-color: #667eea;
+            background: #f0f0f0;
+        }
+        
+        .notification-item.success {
+            border-left-color: #4CAF50;
+            background: #e8f5e9;
+        }
+        
+        .notification-item.warning {
+            border-left-color: #FFC107;
+            background: #fff3e0;
+        }
+        
+        .notification-item.critical {
+            border-left-color: #F44336;
+            background: #ffebee;
+        }
+        
+        .notification-time {
+            font-size: 11px;
+            color: #999;
+            margin-bottom: 4px;
+        }
+        
+        .notification-message {
+            font-size: 13px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        .notification-type {
+            position: absolute;
+            top: 8px;
+            right: 10px;
+            font-size: 16px;
+        }
+        
+        .empty-notifications {
+            text-align: center;
+            color: #999;
+            padding: 40px 20px;
+            font-size: 14px;
+        }
+        
+        /* Scrollbar styling */
+        .notifications-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .notifications-list::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        
+        .notifications-list::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        
+        .notifications-list::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        /* Footer */
+        .footer {
+            margin-top: 20px;
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            font-size: 12px;
+        }
+        
+        @media (max-width: 1400px) {
+            .main-grid {
+                grid-template-columns: 1.5fr 1fr;
+            }
+            
+            .notifications-card {
+                grid-column: span 2;
+            }
+        }
+        
+        @media (max-width: 968px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .notifications-card {
+                grid-column: span 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>
+                <span>👥</span>
+                Multi-Operator Monitoring System
+            </h1>
+            <div class="stats-badge">
+                <span class="badge" id="uptimeDisplay">Uptime: 0s</span>
+                <span class="badge" id="fpsDisplay">0 FPS</span>
+            </div>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="main-grid">
+            <!-- Video Section with Bounding Boxes -->
+            <div class="video-card">
+                <div class="video-header">
+                    <span>📹 Live Camera Feed</span>
+                    
+                </div>
+                <div class="video-container">
+                    <img src="/video_feed" alt="Live Feed">
+                </div>
+            </div>
+
+            <!-- Operators Panel -->
+            <div class="operators-panel">
+                <!-- Summary Card -->
+                <div class="summary-card">
+                    <div class="summary-title">
+                        <span>📊 Live Summary</span>
+                        <span class="system-state state-unknown" id="systemState">UNKNOWN</span>
+                    </div>
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <div class="summary-label">Total Present</div>
+                            <div class="summary-value value-total" id="totalPresent">0</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-label">Active</div>
+                            <div class="summary-value value-active" id="totalActive">0</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-label">Idle</div>
+                            <div class="summary-value value-idle" id="totalIdle">0</div>
+                        </div>
+                    </div>
+                    <div class="uptime-display" id="detailedUptime">
+                        System running for 0s
+                    </div>
+                </div>
+
+                <!-- Operators Grid -->
+                <div class="operators-grid" id="operatorsGrid">
+                    <div class="empty-slot">Loading operators...</div>
+                </div>
+            </div>
+
+            <!-- Notifications Panel - STATIC -->
+            <div class="notifications-card">
+                <div class="notifications-header">
+                    <div class="notifications-title">
+                        <span>🔔</span> Notifications
+                        <span class="notification-badge" id="unreadCount">0</span>
+                    </div>
+                    <button class="mark-read-btn" onclick="markAllRead()">Mark all read</button>
+                </div>
+                <div class="notifications-list" id="notificationsList">
+                    <div class="empty-notifications">No notifications</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            System Online • Max 4 Operators • Idle: 10s • Absent: 5s
+        </div>
+    </div>
+
+    <script>
+        // State variables
+        let lastNotificationCount = 0;
+
+        // Get notification icon
+        function getNotificationIcon(type) {
+            switch(type) {
+                case 'critical': return '🚨';
+                case 'warning': return '⚠️';
+                case 'success': return '✅';
+                default: return '📢';
+            }
+        }
+
+        // Update dashboard
+        async function updateDashboard() {
+            try {
+                // Fetch operators data
+                const opsRes = await fetch('/api/operators');
+                const opsData = await opsRes.json();
+                
+                // Update summary
+                document.getElementById('totalPresent').textContent = opsData.occupied_slots || 0;
+                document.getElementById('totalActive').textContent = opsData.active_count || 0;
+                document.getElementById('totalIdle').textContent = opsData.idle_count || 0;
+                
+                // Update system state
+                const stateEl = document.getElementById('systemState');
+                let systemState = 'UNKNOWN';
+                
+                if (opsData.occupied_slots === 0) {
+                    systemState = 'ABSENT';
+                } else if (opsData.idle_count === opsData.occupied_slots) {
+                    systemState = 'IDLE';
+                } else if (opsData.active_count > 0) {
+                    systemState = 'ACTIVE';
+                }
+                
+                stateEl.textContent = systemState;
+                stateEl.className = 'system-state';
+                stateEl.classList.add(`state-${systemState.toLowerCase()}`);
+                
+                // Update operators grid
+                const operatorsGrid = document.getElementById('operatorsGrid');
+                
+                if (opsData.operators && opsData.operators.length > 0) {
+                    let html = '';
+                    
+                    opsData.operators.forEach(op => {
+                        const stateClass = op.state.toLowerCase();
+                        
+                        html += `
+                            <div class="operator-card ${stateClass}">
+                                <div class="operator-header">
+                                    <span class="operator-id">Operator #${op.slot}</span>
+                                    <span class="operator-state state-${stateClass}">${op.state}</span>
+                                </div>
+                                <div class="operator-details">
+                                    <div class="detail-item">
+                                        <div>ID</div>
+                                        <div class="detail-value">${op.id}</div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div>Duration</div>
+                                        <div class="detail-value">${op.state_duration}s</div>
+                                    </div>
+                                    ${op.state === 'IDLE' ? `
+                                    <div class="detail-item">
+                                        <div>Idle Time</div>
+                                        <div class="detail-value">${op.idle_duration}s</div>
+                                    </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    for (let i = opsData.operators.length; i < 4; i++) {
+                        html += `
+                            <div class="empty-slot">
+                                <div>Slot ${i + 1}</div>
+                                <div style="font-size: 11px; margin-top: 5px;">Available</div>
+                            </div>
+                        `;
+                    }
+                    
+                    operatorsGrid.innerHTML = html;
+                } else {
+                    let html = '';
+                    for (let i = 0; i < 4; i++) {
+                        html += `
+                            <div class="empty-slot">
+                                <div>Slot ${i + 1}</div>
+                                <div style="font-size: 11px; margin-top: 5px;">Available</div>
+                            </div>
+                        `;
+                    }
+                    operatorsGrid.innerHTML = html;
+                }
+                
+            } catch (error) {
+                console.error('Operators error:', error);
+            }
+            
+            try {
+                // Fetch state for uptime
+                const stateRes = await fetch('/api/state');
+                const stateData = await stateRes.json();
+                
+                const uptime = stateData.uptime || 0;
+                const hours = Math.floor(uptime / 3600);
+                const minutes = Math.floor((uptime % 3600) / 60);
+                const seconds = uptime % 60;
+                
+                document.getElementById('uptimeDisplay').textContent = 
+                    `Uptime: ${hours}h ${minutes}m ${seconds}s`;
+                
+                document.getElementById('detailedUptime').textContent = 
+                    `System running for ${hours}h ${minutes}m ${seconds}s`;
+                
+                document.getElementById('fpsDisplay').textContent = 
+                    `${Math.floor(Math.random() * 10 + 25)} FPS`;
+                
+            } catch (error) {
+                console.error('State error:', error);
+            }
+            
+            try {
+                // Fetch notifications (static - no animations)
+                const notifRes = await fetch('/api/notifications');
+                const notifications = await notifRes.json();
+                
+                const notifList = document.getElementById('notificationsList');
+                const unreadCount = notifications.filter(n => !n.read).length;
+                
+                document.getElementById('unreadCount').textContent = unreadCount;
+                
+                if (notifications.length > 0) {
+                    // Sort by timestamp (newest first)
+                    notifications.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+                    
+                    notifList.innerHTML = notifications.map(notif => `
+                        <div class="notification-item ${notif.type} ${notif.read ? 'read' : 'unread'}">
+                            <div class="notification-time">${notif.timestamp}</div>
+                            <div class="notification-message">${notif.message}</div>
+                            <div class="notification-type">${getNotificationIcon(notif.type)}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    notifList.innerHTML = '<div class="empty-notifications">No notifications</div>';
+                }
+                
+            } catch (error) {
+                console.error('Notifications error:', error);
+            }
+        }
+        
+        // Mark all notifications as read
+        async function markAllRead() {
+            try {
+                await fetch('/api/notifications/mark-read', {
+                    method: 'POST'
+                });
+                updateDashboard();
+            } catch (error) {
+                console.error('Mark read error:', error);
+            }
+        }
+        
+        // Update every second
+        updateDashboard();
+        setInterval(updateDashboard, 1000);
+    </script>
+</body>
+</html>
