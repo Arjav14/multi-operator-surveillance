@@ -29,49 +29,72 @@ no_operator_warning_shown = False
 # Notifications queue
 notifications = deque(maxlen=50)
 
-# Track sent notifications to avoid duplicates
-sent_notifications = set()
-
-# Track active operators for notifications
-previous_active_operators = set()
-
 # Multi-operator monitor
 operator_monitor = None
 
 # Flask app
 app = Flask(__name__)
 
-def add_notification(message, type="info", notification_id=None):
-    """Add notification to dashboard queue (only if not sent before)"""
-    # Generate ID if not provided
-    if notification_id is None:
-        notification_id = message
+# ============= NOTIFICATION TRACKING =============
+# Track last notification sent per operator per state
+# This ensures we only send ONE notification per state change
+operator_last_notification = {}  # Format: {operator_id: {'state': last_state, 'time': timestamp}}
+
+def should_send_notification(operator_id, new_state):
+    """Check if we should send notification based on state change"""
+    global operator_last_notification
     
-    # Check if this notification was already sent
-    if notification_id in sent_notifications:
-        return
+    current_time = time.time()
     
-    # Add to sent set
-    sent_notifications.add(notification_id)
+    # If operator never had notification, send it
+    if operator_id not in operator_last_notification:
+        operator_last_notification[operator_id] = {
+            'state': new_state,
+            'time': current_time
+        }
+        return True
     
-    # Keep sent set manageable (remove old entries after 1 hour)
-    if len(sent_notifications) > 100:
-        sent_notifications.clear()
+    last_data = operator_last_notification[operator_id]
+    last_state = last_data['state']
+    
+    # Only send if state has CHANGED
+    if last_state != new_state:
+        # Update tracking
+        operator_last_notification[operator_id] = {
+            'state': new_state,
+            'time': current_time
+        }
+        return True
+    
+    # Same state, don't send notification
+    return False
+
+def add_notification(message, type="info", operator_id=None, state=None):
+    """Add notification to dashboard queue based on state change"""
+    
+    # If this is an operator-specific notification, check if we should send it
+    if operator_id is not None and state is not None:
+        if not should_send_notification(operator_id, state):
+            return  # Don't send duplicate notification for same state
     
     notification = {
         'id': len(notifications) + 1,
         'message': message,
         'type': type,
         'timestamp': datetime.now().strftime("%H:%M:%S"),
-        'read': False
+        'read': False,
+        'operator': operator_id,
+        'state': state
     }
     notifications.appendleft(notification)
     print(f"[{type.upper()}] {message}")
 
-def clear_notification_flag(notification_id):
-    """Clear notification flag to allow it again"""
-    if notification_id in sent_notifications:
-        sent_notifications.remove(notification_id)
+def reset_operator_notifications(operator_id):
+    """Force reset notifications for an operator (used when they leave)"""
+    global operator_last_notification
+    if operator_id in operator_last_notification:
+        del operator_last_notification[operator_id]
+# ==================================================
 
 @app.route('/')
 def index():
@@ -85,16 +108,13 @@ def video_feed():
             try:
                 with frame_lock:
                     if latest_frame is None:
-                        # If no frame, create a blank one with message
                         blank = np.zeros((480, 640, 3), dtype=np.uint8)
                         cv2.putText(blank, "Waiting for camera...", (150, 240), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                         frame_to_send = blank
                     else:
-                        # Send frame with bounding boxes
                         frame_to_send = latest_frame.copy()
                 
-                # Encode frame as JPEG
                 _, buffer = cv2.imencode('.jpg', frame_to_send, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 frame_bytes = buffer.tobytes()
                 
@@ -105,7 +125,7 @@ def video_feed():
                 print(f"❌ Streaming error: {e}")
                 continue
             
-            time.sleep(0.03)  # ~30 FPS
+            time.sleep(0.03)
     
     return Response(generate(), 
                    mimetype='multipart/x-mixed-replace; boundary=frame')
@@ -182,18 +202,15 @@ def draw_bounding_boxes(frame, active_operators):
     for op in active_operators:
         x1, y1, x2, y2 = op['box']
         
-        # Color based on state
         if op['state'] == 'ACTIVE':
-            color = (0, 255, 0)  # Green
+            color = (0, 255, 0)
             label = f"#{op['slot']}"
-        else:  # IDLE
-            color = (0, 255, 255)  # Yellow
+        else:
+            color = (0, 255, 255)
             label = f"#{op['slot']} IDLE ({op['idle_duration']}s)"
         
-        # Draw bounding box
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         
-        # Draw label with background
         (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         cv2.rectangle(frame, (x1, y1-25), (x1+w, y1-5), (0,0,0), -1)
         cv2.putText(frame, label, (x1, y1-10), 
@@ -203,7 +220,7 @@ def draw_bounding_boxes(frame, active_operators):
 
 def main():
     global latest_frame, current_state, state_history, start_time, state_start_time
-    global operator_monitor, no_operator_warning_shown, previous_active_operators
+    global operator_monitor, no_operator_warning_shown
     
     print("="*60)
     print("🚀 Multi-Operator Monitoring System")
@@ -276,15 +293,11 @@ def main():
     fps_time = time.time()
     no_operator_start_time = None
     
-    # Track which operator idle notifications have been sent
-    operator_idle_notified = set()
+    # Track active operators for join/leave detection
+    previous_operators = set()
     
-    # Track operator entrance/exit
-    operator_entrance_notified = set()
-    
-    # Add startup notification (only once)
-    add_notification("🚀 System started successfully", "success", "system_start")
-    add_notification("✅ Monitoring system is online", "info", "system_online")
+    # Add startup notification
+    add_notification("🚀 System started successfully", "success")
     
     try:
         while True:
@@ -292,7 +305,7 @@ def main():
             ret, frame = cap.read()
             if not ret:
                 print("❌ Failed to grab frame, reconnecting...")
-                add_notification("⚠️ Camera connection lost - reconnecting...", "warning", "camera_lost")
+                add_notification("⚠️ Camera connection lost - reconnecting...", "warning")
                 cap.release()
                 time.sleep(1)
                 cap = cv2.VideoCapture(config['camera']['source'], cv2.CAP_DSHOW)
@@ -309,8 +322,6 @@ def main():
                 fps = fps_counter
                 fps_counter = 0
                 fps_time = current_time
-                # Optional: Show FPS occasionally
-                # print(f"📊 FPS: {fps}")
             
             # Convert to grayscale for motion detection
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -322,35 +333,57 @@ def main():
             # Process operators through multi-operator monitor
             active_operators = operator_monitor.process_frame(frame, detections, gray)
             
-            # Track operator entrance/exit
-            current_operator_ids = set()
+            # ============= JOIN/LEAVE NOTIFICATIONS =============
+            current_operators = set()
+            operator_states = {}
+            
+            # Track current operators and their states
             for op in active_operators:
-                op_id = f"operator_{op['slot']}"
-                current_operator_ids.add(op_id)
-                
-                # New operator entered
-                if op_id not in previous_active_operators and op_id not in operator_entrance_notified:
-                    add_notification(f"👤 Operator #{op['slot']} entered the frame", "success", f"entered_{op['slot']}")
-                    operator_entrance_notified.add(op_id)
+                op_id = f"op_{op['slot']}"
+                current_operators.add(op_id)
+                operator_states[op_id] = {
+                    'slot': op['slot'],
+                    'state': op['state'],
+                    'idle_duration': op['idle_duration']
+                }
             
-            # Operator left
-            for op_id in previous_active_operators:
-                if op_id not in current_operator_ids:
+            # Check for operators who JOINED
+            for op_id in current_operators:
+                if op_id not in previous_operators:
+                    # New operator joined - send notification with current state
+                    slot = operator_states[op_id]['slot']
+                    state = operator_states[op_id]['state']
+                    add_notification(
+                        f"👤 Operator #{slot} joined - {state}", 
+                        "success", 
+                        operator_id=op_id, 
+                        state=f"JOINED_{state}"
+                    )
+            
+            # Check for operators who LEFT
+            for op_id in previous_operators:
+                if op_id not in current_operators:
+                    # Operator left - reset their notification tracking
                     slot = op_id.split('_')[1]
-                    add_notification(f"🚪 Operator #{slot} left the frame", "warning", f"left_{slot}")
-                    # Remove from entrance notified when they leave
-                    if op_id in operator_entrance_notified:
-                        operator_entrance_notified.remove(op_id)
+                    add_notification(
+                        f"🚪 Operator #{slot} left", 
+                        "warning",
+                        operator_id=op_id,
+                        state="LEFT"
+                    )
+                    # Reset notification tracking for this operator
+                    reset_operator_notifications(op_id)
             
-            previous_active_operators = current_operator_ids.copy()
+            previous_operators = current_operators.copy()
+            # ====================================================
             
             # Update motion for each operator
             for op in active_operators:
                 slot = op['slot'] - 1
                 x1, y1, x2, y2 = op['box']
+                op_id = f"op_{op['slot']}"
                 
                 if prev_gray is not None:
-                    # Ensure ROI is within frame boundaries
                     h, w = gray.shape
                     y1 = max(0, min(y1, h-1))
                     y2 = max(y1+1, min(y2, h))
@@ -372,10 +405,25 @@ def main():
                             if motion_area > MIN_MOTION_AREA and motion_intensity > MOTION_THRESHOLD:
                                 state_changed = operator_monitor.update_operator_state(slot, True, current_time)
                                 if state_changed:
-                                    # Send notification for becoming active
-                                    add_notification(f"⚡ Operator #{slot+1} is now ACTIVE", "success", f"active_{slot+1}")
+                                    # Operator became ACTIVE - send notification
+                                    add_notification(
+                                        f"⚡ Operator #{op['slot']} is now ACTIVE", 
+                                        "success",
+                                        operator_id=op_id,
+                                        state="ACTIVE"
+                                    )
                             else:
-                                operator_monitor.update_operator_state(slot, False, current_time)
+                                old_state = operator_monitor.operator_data[slot]['state'] if operator_monitor.operator_data[slot] else None
+                                state_changed = operator_monitor.update_operator_state(slot, False, current_time)
+                                
+                                if state_changed and operator_monitor.operator_data[slot]['state'] == 'IDLE':
+                                    # Operator became IDLE - send notification
+                                    add_notification(
+                                        f"😴 Operator #{op['slot']} is now IDLE", 
+                                        "warning",
+                                        operator_id=op_id,
+                                        state="IDLE"
+                                    )
             
             prev_gray = gray.copy()
             
@@ -385,12 +433,11 @@ def main():
             # Get summary
             summary = operator_monitor.get_summary()
             
-            # Determine system state and add silent notifications (only once per state change)
+            # Determine system state
             if summary['occupied_slots'] == 0:
-                # No operators present
                 if no_operator_start_time is None:
                     no_operator_start_time = current_time
-                    add_notification("👥 All operators left the frame", "warning", "operators_left")
+                    add_notification("👥 All operators left the frame", "warning")
                 
                 no_operator_duration = current_time - no_operator_start_time
                 
@@ -398,29 +445,25 @@ def main():
                     state = "ABSENT"
                     
                     if not no_operator_warning_shown:
-                        add_notification("🚨 CRITICAL: No operators detected for 5 seconds!", "critical", "no_operators")
+                        add_notification("🚨 CRITICAL: No operators detected!", "critical")
                         no_operator_warning_shown = True
                 else:
                     state = "ACTIVE"
             else:
-                # Operators present - reset flags when operators return
                 if no_operator_start_time is not None:
-                    add_notification("👥 Operators have returned to frame", "success", "operators_returned")
-                    no_operator_warning_shown = False  # Reset for next absence
+                    add_notification("👥 Operators have returned to frame", "success")
+                    no_operator_warning_shown = False
                 
                 no_operator_start_time = None
                 
-                # Check if all operators are idle
                 if summary['idle_count'] > 0 and summary['active_count'] == 0:
                     state = "IDLE"
-                    # Check if just became idle (only once)
                     if prev_state != "IDLE":
-                        add_notification("😴 All operators are now IDLE", "warning", "all_idle")
+                        add_notification("😴 All operators are now IDLE", "warning")
                 elif summary['active_count'] > 0:
                     state = "ACTIVE"
-                    # Check if just became active (only once)
                     if prev_state == "IDLE":
-                        add_notification("⚡ Operators are now ACTIVE", "success", "became_active")
+                        add_notification("⚡ Operators are now ACTIVE", "success")
                 else:
                     state = "UNKNOWN"
                 last_seen = current_time
@@ -444,30 +487,7 @@ def main():
                     if len(state_history) > 100:
                         state_history = state_history[-100:]
             
-            # Track individual operator idle notifications (only once per operator)
-            current_active_ids = set()
-            for op in active_operators:
-                op_id = f"operator_{op['slot']}"
-                current_active_ids.add(op_id)
-                
-                # Send idle notification only once per operator
-                if op['state'] == 'IDLE' and op_id not in operator_idle_notified:
-                    add_notification(f"😴 Operator #{op['slot']} is now IDLE", "warning", f"op_idle_{op['slot']}")
-                    operator_idle_notified.add(op_id)
-            
-            # Remove operators from notified set when they're no longer idle
-            for op_id in list(operator_idle_notified):
-                if op_id not in current_active_ids:
-                    operator_idle_notified.remove(op_id)
-                else:
-                    # Check if operator became active again
-                    for op in active_operators:
-                        if f"operator_{op['slot']}" == op_id and op['state'] == 'ACTIVE':
-                            operator_idle_notified.remove(op_id)
-                            add_notification(f"⚡ Operator #{op['slot']} became ACTIVE", "success", f"op_active_{op['slot']}")
-                            break
-            
-            # Update dashboard with frame that has bounding boxes
+            # Update dashboard with frame
             with frame_lock:
                 latest_frame = frame_with_boxes
             
@@ -478,11 +498,11 @@ def main():
     
     except KeyboardInterrupt:
         print("\n🛑 System stopped by user")
-        add_notification("🛑 System stopped by user", "info", "system_stop")
+        add_notification("🛑 System stopped by user", "info")
     except Exception as e:
         print(f"❌ Error: {e}")
         traceback.print_exc()
-        add_notification(f"❌ System error: {str(e)}", "critical", "system_error")
+        add_notification(f"❌ System error: {str(e)}", "critical")
     finally:
         cap.release()
         cv2.destroyAllWindows()
